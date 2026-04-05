@@ -248,6 +248,82 @@ def build_comparison_map(
 
 
 # ---------------------------------------------------------------------------
+# Map from pre-computed OSRM results (called by check_distance_osrm.py)
+# ---------------------------------------------------------------------------
+
+def build_map_from_route_data(
+    route_data_list,        # List[RouteData] from check_distance_osrm
+    total_km: float,
+    label: str = "Routes",
+    output_path: str = "map.html",
+) -> None:
+    """
+    Builds an HTML map using route coords and distances already computed by OSRM.
+
+    Each route is drawn as a coloured polyline. Hovering shows stop count and km.
+    A fixed summary panel in the corner shows overall totals.
+
+    Called by check_distance_osrm.py when --map is passed; no extra OSRM queries.
+    """
+    all_coords = [coord for r in route_data_list for coord in r.coords]
+    if not all_coords:
+        print("  [WARN] No coordinates to map.")
+        return
+
+    center = centroid(all_coords)
+    fmap = folium.Map(location=center, zoom_start=13, tiles="CartoDB positron")
+
+    colors = cycle(ROUTE_COLORS)
+    for r in route_data_list:
+        if not r.coords:
+            continue
+        color = next(colors)
+        tooltip = (
+            f"Route {r.route_index + 1} · "
+            f"{r.stop_count} stops · "
+            f"{r.distance_km:.2f} km"
+        )
+        folium.PolyLine(
+            locations=r.coords,
+            color=color,
+            weight=3,
+            opacity=0.85,
+            tooltip=tooltip,
+        ).add_to(fmap)
+
+        # Start marker
+        folium.CircleMarker(
+            location=r.coords[0],
+            radius=6, color=color, fill=True, fill_color=color,
+            fill_opacity=1.0, tooltip=f"Route {r.route_index + 1} — START",
+        ).add_to(fmap)
+        # End marker (only if different from start)
+        if len(r.coords) > 1 and r.coords[-1] != r.coords[0]:
+            folium.CircleMarker(
+                location=r.coords[-1],
+                radius=6, color=color, fill=True, fill_color="white",
+                fill_opacity=1.0, tooltip=f"Route {r.route_index + 1} — END",
+            ).add_to(fmap)
+
+    # Summary panel (fixed, top-right)
+    total_stops = sum(r.stop_count for r in route_data_list)
+    panel_html = f"""
+    <div style="position:fixed;top:16px;right:16px;background:white;
+                padding:12px 16px;border-radius:8px;border:1px solid #ccc;
+                font-family:monospace;font-size:13px;z-index:9999;
+                box-shadow:2px 2px 8px rgba(0,0,0,.2);min-width:200px">
+        <b>{label}</b><br>
+        <hr style="margin:6px 0">
+        Routes&nbsp;&nbsp;&nbsp;&nbsp;: {len(route_data_list):,}<br>
+        Stops&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;: {total_stops:,}<br>
+        Total km&nbsp;&nbsp;: {total_km:,.2f} km
+    </div>
+    """
+    fmap.get_root().html.add_child(folium.Element(panel_html))
+    fmap.save(output_path)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 

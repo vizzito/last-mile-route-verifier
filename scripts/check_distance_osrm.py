@@ -50,6 +50,16 @@ OSRM_REQUEST_TIMEOUT: int = 10       # HTTP request timeout in seconds
 # ---------------------------------------------------------------------------
 
 @dataclass
+class RouteData:
+    """Aggregated result for a single route, used for map generation."""
+    route_index: int
+    coords: List[Tuple[float, float]]   # All stops in order
+    distance_km: float
+    segment_count: int
+    stop_count: int
+
+
+@dataclass
 class SegmentResult:
     """Holds the distance result for a single URL segment queried from OSRM."""
     route_index: int
@@ -347,7 +357,30 @@ def calculate_total_distance_parallel(
 
     _print_summary(route_totals, route_seg_counts, total_distance, total_segments, skipped_count)
 
-    return total_distance
+    # Build per-route structured data for optional map generation
+    route_data_list: List[RouteData] = []
+    for r_idx, route_urls in enumerate(nested_urls):
+        coords = _flatten_route_coords(route_urls)
+        route_data_list.append(RouteData(
+            route_index=r_idx,
+            coords=coords,
+            distance_km=route_totals[r_idx],
+            segment_count=route_seg_counts[r_idx],
+            stop_count=len(coords),
+        ))
+
+    return total_distance, route_data_list
+
+
+def _flatten_route_coords(route_urls: List[str]) -> List[Tuple[float, float]]:
+    """Returns all coordinates in a route in order, without consecutive duplicates."""
+    coords: List[Tuple[float, float]] = []
+    for url in route_urls:
+        origin, destination, waypoints = extract_coordinates_from_url(url)
+        for p in ([origin] + waypoints + [destination]):
+            if p and (not coords or coords[-1] != p):
+                coords.append(p)
+    return coords
 
 
 # ---------------------------------------------------------------------------
@@ -498,6 +531,17 @@ examples:
         default=6,
         help="Number of parallel worker threads for OSRM queries (default: 6).",
     )
+    parser.add_argument(
+        "--map",
+        metavar="OUTPUT_HTML",
+        default=None,
+        help="If provided, generate an HTML map saved to this path (e.g. maps/amazon.html).",
+    )
+    parser.add_argument(
+        "--label",
+        default=None,
+        help="Dataset label shown in the map title (e.g. 'Amazon' or 'Solver').",
+    )
     args = parser.parse_args()
 
     with open(args.input) as f:
@@ -506,9 +550,15 @@ examples:
     if not isinstance(nested_urls, list) or not nested_urls:
         raise ValueError("Input JSON must be a non-empty list of route URL lists.")
 
-    calculate_total_distance_parallel(
+    total_km, route_data_list = calculate_total_distance_parallel(
         nested_urls,
         osrm_base_url=args.osrm,
         max_workers=args.workers,
         input_file=args.input,
     )
+
+    if args.map:
+        from generate_map import build_map_from_route_data
+        label = args.label or args.input
+        build_map_from_route_data(route_data_list, total_km, label=label, output_path=args.map)
+        print(f"Map saved → {args.map}")
