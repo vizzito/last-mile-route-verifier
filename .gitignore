@@ -1,8 +1,8 @@
-data/
-*.osrm
-*.osrm.*
-*.pbf
-*.osm.pbf
+# OSM / OSRM data files (too large for git)
+data/**/*.osm.pbf
+data/**/*.pbf
+data/**/*.osrm
+data/**/*.osrm.*
 __pycache__/
 *.pyc
 .env
