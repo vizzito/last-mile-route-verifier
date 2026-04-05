@@ -1,0 +1,47 @@
+services:
+
+  # ---------------------------------------------------------------------------
+  # OSRM Routing Server
+  #
+  # Serves road network data for the configured region via HTTP.
+  # Pre-processed map files must exist under ./data/${OSRM_REGION}/ before
+  # starting this service (see README.md → Setup for the extract/partition/
+  # customize steps).
+  #
+  # Access: http://localhost:${OSRM_PORT} (default: http://localhost:5002)
+  # ---------------------------------------------------------------------------
+  osrm:
+    image: osrm/osrm-backend
+    platform: linux/amd64
+    ports:
+      - "${OSRM_PORT:-5002}:5000"
+    volumes:
+      - ./data/${OSRM_REGION:-massachusetts}:/data
+    command: osrm-routed /data/${OSRM_REGION:-massachusetts}-latest.osrm
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ---------------------------------------------------------------------------
+  # Route Distance Verifier
+  #
+  # One-shot container that queries OSRM for route distances.
+  # Run with docker compose run, not docker compose up:
+  #
+  #   docker compose run --rm verifier \
+  #     --input inputs/amazon/routes.json \
+  #     --osrm  http://osrm:5000
+  #
+  # Note: --osrm http://osrm:5000 uses the internal Docker service name.
+  #       Use http://localhost:${OSRM_PORT} when running the script natively.
+  # ---------------------------------------------------------------------------
+  verifier:
+    build: .
+    volumes:
+      - ./inputs:/app/inputs
+    depends_on:
+      osrm:
+        condition: service_healthy

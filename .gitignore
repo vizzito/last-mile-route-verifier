@@ -3,10 +3,20 @@ data/**/*.osm.pbf
 data/**/*.pbf
 data/**/*.osrm
 data/**/*.osrm.*
+
+# Python
 __pycache__/
 *.pyc
-.env
-*.log
-.DS_Store
 venv/
 .venv/
+
+# Environment variables
+.env
+
+# Generated map outputs
+maps/*.html
+maps/*.png
+
+# System
+.DS_Store
+*.log

@@ -1,39 +1,58 @@
 #!/bin/bash
+# run_osrm.sh
+# -----------
+# Starts a local OSRM routing server using Docker.
+# Pre-processed map data must already exist in ./data/<region>/ (see README.md).
+#
+# Usage:
+#   ./run_osrm.sh <region> <port>
+#
+# Examples:
+#   ./run_osrm.sh massachusetts 5002
+#   ./run_osrm.sh new-york 5002
+#
+# Press Ctrl+C to stop the server.
 
-# ===============================
-# USO
-# ===============================
-CITY=$1
-PORT=$2
+set -euo pipefail
 
-if [ -z "$CITY" ] || [ -z "$PORT" ]; then
-  echo "Uso: ./run_osrm.sh <ciudad> <puerto>"
-  echo "Ejemplo: ./run_osrm.sh massachusetts 5002"
+# ---------------------------------------------------------------------------
+# Arguments
+# ---------------------------------------------------------------------------
+REGION="${1:-}"
+PORT="${2:-}"
+
+if [[ -z "$REGION" || -z "$PORT" ]]; then
+  echo "Usage: ./run_osrm.sh <region> <port>"
+  echo "Example: ./run_osrm.sh massachusetts 5002"
   exit 1
 fi
 
-# ===============================
-# CONFIGURACIÓN
-# ===============================
-OSRM_DATA_DIR="./data/$CITY"
-OSRM_BASE_NAME="${CITY}-latest.osrm"
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+DATA_DIR="./data/${REGION}"
+OSRM_FILE="${REGION}-latest.osrm"
 DOCKER_IMAGE="osrm/osrm-backend"
 
-# ===============================
-# VALIDACIÓN DE ARCHIVOS
-# ===============================
-if [ ! -f "$OSRM_DATA_DIR/$OSRM_BASE_NAME" ]; then
-  echo "❌ No se encontró el archivo $OSRM_BASE_NAME en $OSRM_DATA_DIR"
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+if [[ ! -f "${DATA_DIR}/${OSRM_FILE}" ]]; then
+  echo "ERROR: OSRM file not found: ${DATA_DIR}/${OSRM_FILE}"
+  echo "Run the extract/partition/customize steps first (see README.md)."
   exit 1
 fi
 
-# ===============================
-# LEVANTAR OSRM
-# ===============================
-echo "🚀 Levantando OSRM en http://localhost:$PORT para '$CITY'..."
-echo "Presiona Ctrl+C para detenerlo."
+# ---------------------------------------------------------------------------
+# Start OSRM
+# ---------------------------------------------------------------------------
+echo "Starting OSRM for region '${REGION}' on http://localhost:${PORT} ..."
+echo "Press Ctrl+C to stop."
+echo ""
 
-docker run --rm -t -i --platform linux/amd64 \
-  -p $PORT:5000 \
-  -v "$(pwd)/$OSRM_DATA_DIR:/data" $DOCKER_IMAGE \
-  osrm-routed /data/$OSRM_BASE_NAME
+docker run --rm -it \
+  --platform linux/amd64 \
+  -p "${PORT}:5000" \
+  -v "$(pwd)/${DATA_DIR}:/data" \
+  "${DOCKER_IMAGE}" \
+  osrm-routed "/data/${OSRM_FILE}"

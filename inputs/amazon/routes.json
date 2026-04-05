@@ -1,0 +1,13 @@
+[
+  [
+    "https://www.google.com/maps/dir/?api=1&origin=-34.59219660,-58.47829330&destination=-34.60301978,-58.48847946&waypoints=-34.60422700,-58.48901656|-34.60785895,-58.48976106|-34.61050200,-58.49120340|-34.61290450,-58.49320880&travelmode=driving",
+    "https://www.google.com/maps/dir/?api=1&origin=-34.60301978,-58.48847946&destination=-34.59219660,-58.47829330&waypoints=-34.61377677,-58.49457494|-34.62154705,-58.50056881|-34.62540100,-58.50280950|-34.62890320,-58.50480210&travelmode=driving"
+  ],
+  [
+    "https://www.google.com/maps/dir/?api=1&origin=-34.58929812,-58.50732900&destination=-34.58433290,-58.50607318&waypoints=-34.58185618,-58.50831576|-34.58019850,-58.50539707|-34.57810340,-58.50310880|-34.57640200,-58.50120450&travelmode=driving"
+  ],
+  [
+    "https://www.google.com/maps/dir/?api=1&origin=-34.61500000,-58.46800000&destination=-34.62800000,-58.47500000&waypoints=-34.61900000,-58.46950000|-34.62100000,-58.47100000&travelmode=driving",
+    "https://www.google.com/maps/dir/?api=1&origin=-34.62800000,-58.47500000&destination=-34.61500000,-58.46800000&waypoints=-34.63100000,-58.47700000|-34.63500000,-58.47900000&travelmode=driving"
+  ]
+]
