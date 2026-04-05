@@ -1,0 +1,12 @@
+data/
+*.osrm
+*.osrm.*
+*.pbf
+*.osm.pbf
+__pycache__/
+*.pyc
+.env
+*.log
+.DS_Store
+venv/
+.venv/
