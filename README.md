@@ -68,7 +68,7 @@ docker compose up osrm -d
 
 # 4. Verify the Amazon historical routes for depot DBO1
 #    (60 routes, Boston area — reconstructed from GPS tracking data)
-python scripts/check_distance_osrm.py \
+python3 scripts/check_distance_osrm.py \
   --input inputs/amazon/routes_result_DBO1_AMZ_60.json \
   --osrm  http://localhost:5002 \
   --workers 6
@@ -76,7 +76,7 @@ python scripts/check_distance_osrm.py \
 
 # 5. Verify the solver-generated routes for the same depot
 #    (same delivery stops, optimized by the solver)
-python scripts/check_distance_osrm.py \
+python3 scripts/check_distance_osrm.py \
   --input inputs/solver/routes_result_DBO1_56.json \
   --osrm  http://localhost:5002 \
   --workers 6
@@ -319,13 +319,13 @@ pip install -r requirements.txt
 ./run_osrm.sh massachusetts 5002
 
 # Verify Amazon routes (map auto-saved to maps/AMZ_DBO1.html)
-python scripts/check_distance_osrm.py \
+python3 scripts/check_distance_osrm.py \
   --input   inputs/amazon/routes_result_DBO1_AMZ_60.json \
   --osrm    http://localhost:5002 \
   --workers 6
 
 # Verify solver routes (map auto-saved to maps/SOLVER_DBO1.html)
-python scripts/check_distance_osrm.py \
+python3 scripts/check_distance_osrm.py \
   --input   inputs/solver/routes_result_DBO1_56.json \
   --osrm    http://localhost:5002 \
   --workers 6
@@ -358,19 +358,11 @@ Each map includes:
 - Optional top-center banner with a description of the dataset
 
 ```bash
-# Single dataset map (no OSRM needed)
-python scripts/generate_map.py \
+# Generate a map for any route JSON (no OSRM needed)
+python3 scripts/generate_map.py \
   --input   inputs/amazon/routes_result_DBO1_AMZ_60.json \
   --output  maps/DBO1_amazon.html \
   --label-a "DBO1 Amazon"
-
-# Side-by-side comparison with layer toggle
-python scripts/generate_map.py \
-  --input   inputs/amazon/routes_result_DBO1_AMZ_60.json \
-  --compare inputs/solver/routes_result_DBO1_56.json \
-  --output  maps/DBO1_comparison.html \
-  --label-a "Amazon" \
-  --label-b "Solver"
 ```
 
 **Map interactive features:**
@@ -385,8 +377,7 @@ python scripts/generate_map.py \
 |---|---|---|
 | `--input` | required | Route JSON file |
 | `--output` | `map.html` | Output HTML file path |
-| `--compare` | none | Second JSON file to overlay with a layer toggle |
-| `--label-a` / `--label-b` | `Amazon` / `Solver` | Dataset labels in the panel and layer control |
+| `--label-a` | `Amazon` | Dataset label shown in the panel and banner |
 | `--description` | none | Subtitle shown in the top-center banner |
 | `--delivery-stops` | none | Override the displayed stop count |
 
@@ -410,7 +401,7 @@ Create a free account at [openrouteservice.org/dev/#/signup](https://openroutese
 
 ```bash
 export ORS_API_KEY=your_key_here
-python scripts/check_distance_ors.py --input inputs/amazon/routes_result_DBO1_AMZ_60.json
+python3 scripts/check_distance_ors.py --input inputs/amazon/routes_result_DBO1_AMZ_60.json
 ```
 
 ### ORS CLI options
@@ -440,7 +431,7 @@ The script uses 1.6 seconds between requests by default (~37 req/min). HTTP 429 
 ```
 last-mile-route-verifier/
 ├── inputs/
-│   ├── amazon/          # Pre-computed historical Amazon driver routes (GPS reconstruction, one file per depot)
+│   ├── amazon/          # Pre-computed historical Amazon driver routes (Public dataset, one file per depot)
 │   └── solver/          # Pre-computed optimizer-generated routes (same stops, one file per depot)
 ├── data/
 │   └── massachusetts/   # Pre-processed OSRM map files (not in git, generated locally)
