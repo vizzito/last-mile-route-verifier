@@ -39,7 +39,7 @@ Click the eye icon next to any route in the panel to overlay delivery sequence n
 
 > **Important:** a running OSRM server is required before executing the verifier. Without it, distance queries cannot be made.
 
-> The sample datasets included (`DBO1`, `DBO2`, `DBO3`) cover the **Boston area**. Downloading the **Massachusetts** map is sufficient to run all included examples.
+> The sample datasets included (`DBO1`, `DBO2`, `DBO3`) cover the **Boston area** and are the recommended starting point. Downloading the **Massachusetts** map is sufficient to run all three. Other depots (`DSE4`, `DLA4`, `DAU1`, `DCH2`) require their own regional map — see the depot table in [Included sample datasets](#included-sample-datasets).
 
 ```bash
 # 1. Download and pre-process the Massachusetts map (one-time setup)
@@ -66,30 +66,50 @@ cp .env.example .env
 # 3. Start the OSRM server
 docker compose up osrm -d
 
-# 4. Verify Amazon historical routes (map is generated automatically)
+# 4. Verify the Amazon historical routes for depot DBO1
+#    (60 routes, Boston area — reconstructed from GPS tracking data)
 python scripts/check_distance_osrm.py \
   --input inputs/amazon/routes_result_DBO1_AMZ_60.json \
   --osrm  http://localhost:5002 \
   --workers 6
-# Saves map to maps/AMZ_DBO1.html
+# → prints TOTAL DISTANCE and saves map to maps/AMZ_DBO1.html
 
-# 5. Verify solver-generated routes
+# 5. Verify the solver-generated routes for the same depot
+#    (same delivery stops, optimized by the solver)
 python scripts/check_distance_osrm.py \
   --input inputs/solver/routes_result_DBO1_56.json \
   --osrm  http://localhost:5002 \
   --workers 6
-# Saves map to maps/SOLVER_DBO1.html
+# → prints TOTAL DISTANCE and saves map to maps/SOLVER_DBO1.html
 
-# Compare the TOTAL DISTANCE values from steps 4 and 5
+# Compare the two TOTAL DISTANCE values — the difference is the solver's improvement
 ```
 
 ---
 
-## How the input data works
+## Included sample datasets
 
-### JSON format
+The `inputs/` folder contains pre-computed route results for several depots from the Amazon Last Mile dataset. **This tool reads those results — it does not run the optimization solver or generate routes.** The solver has already been executed; the JSON files are its output.
 
-Each input file is a JSON array of routes. Each route is a list of URL segments, where each segment covers a sequence of up to 50 delivery stops:
+### What is a depot?
+
+Each JSON file corresponds to one **depot** — a distribution center that serves a specific delivery area. All routes in a file start and end at the same warehouse.
+
+| Depot code | Area | OSRM region needed |
+|---|---|---|
+| `DBO1`, `DBO2`, `DBO3` | Boston, MA | Massachusetts |
+| `DSE4` | Seattle, WA | Washington |
+| `DLA4` | Los Angeles, CA | California |
+| `DAU1` | Austin, TX | Texas |
+| `DCH2` | Chicago, IL | Illinois |
+
+> The sample datasets cover different US cities. Download the OSRM map for the region you want to run. **Massachusetts** covers all the `DBO` depots and is the recommended starting point.
+
+### What is inside each file?
+
+Each file contains the **delivery route plan** for that depot — expressed as a list of routes, where each route is a list of Google Maps direction URLs. Each URL encodes up to 50 ordered GPS stop coordinates as `origin`, `destination`, and `waypoints` query parameters.
+
+This encoding is used as a **portable coordinate container**, not as a Google Maps API call. The tool parses only the coordinate fields from the URL — nothing is sent to Google. You can paste any URL into a browser to inspect the stops visually.
 
 ```json
 {
@@ -108,32 +128,29 @@ Each input file is a JSON array of routes. Each route is a list of URL segments,
 
 | Level | Represents |
 |---|---|
-| Outer array (`routes`) | One entry per route (one delivery driver's full day) |
-| Inner array | One URL per segment of that route (each URL covers up to 50 stops) |
-| URL `origin` / `destination` / `waypoints` | Ordered GPS coordinates of delivery stops |
-
-**Important:** this tool does **not** call Google Maps. The URL format is used only as a portable coordinate container. The tool reads `origin`, `destination`, and `waypoints` from the query string — nothing else.
-
-You can paste any URL into a browser to visually inspect the stops on a map.
+| `delivery_stop_count` | Total delivery stops for this depot (from solver metadata) |
+| Outer array (`routes`) | One entry per route (one vehicle's full day) |
+| Inner array | One URL per segment — each covers up to 50 stops |
+| URL parameters | Ordered GPS coordinates: `origin`, `waypoints`, `destination` |
 
 ### Why up to 50 stops per URL?
 
-Google Maps web supports 10 stops; the Google Directions API supports 25. These limits do not apply to OSRM, which handles up to 50 in a single HTTP request. Packing 50 stops per URL minimizes the number of OSRM queries and significantly speeds up processing.
+Google Maps web supports 10 stops; the Google Directions API supports 25. Neither limit applies to OSRM, which handles up to 50 in a single HTTP request. Packing 50 stops per URL minimizes query count and speeds up processing.
 
 ---
 
 ## Amazon routes vs solver routes
 
-Both datasets cover the **exact same delivery stops**. The difference is in the sequence and distribution of those stops across routes:
+Both `inputs/amazon/` and `inputs/solver/` contain results for the **same depots and the same delivery stops**. The difference is who planned the routes:
 
-| Dataset | Description |
+| Folder | What it contains |
 |---|---|
-| `inputs/amazon/` | Historical routes actually driven by Amazon delivery drivers, reconstructed from GPS tracking data |
-| `inputs/solver/` | Routes generated by the optimization algorithm — same stops, re-sequenced and redistributed across vehicles to minimize total distance |
+| `inputs/amazon/` | Historical routes actually driven by Amazon delivery drivers, reconstructed from GPS tracking data. These represent how deliveries were executed in practice. |
+| `inputs/solver/` | Routes generated by the optimization solver for the same set of stops, re-sequenced and redistributed across vehicles to minimize total driving distance. |
 
-Both are processed identically. The only output that differs is `TOTAL DISTANCE`. Comparing the two gives an independent measurement of how much distance the solver saves.
+For each depot there is a matching pair of files — one in each folder. Running the verifier on both and comparing `TOTAL DISTANCE` gives an independent, reproducible measurement of the distance reduction achieved by the solver.
 
-**Note on solver constraints:** the solver routes were built under real operational constraints — maximum stops per route, vehicle weight, cargo volume, and delivery time windows. These constraints are encoded in the solver input, not in the GPS coordinates. Delivery volumes and weights are not visualized in the maps.
+**Solver constraints:** the solver routes were built under real operational constraints — maximum stops per route, vehicle weight capacity, cargo volume capacity, and delivery time windows. These constraints are part of the solver input; only the resulting GPS stop coordinates are stored in the JSON files. Delivery volumes and weights are not visualized in the maps.
 
 ---
 
@@ -423,8 +440,8 @@ The script uses 1.6 seconds between requests by default (~37 req/min). HTTP 429 
 ```
 last-mile-route-verifier/
 ├── inputs/
-│   ├── amazon/          # Historical Amazon driver routes (GPS reconstruction)
-│   └── solver/          # Optimizer-generated routes (same stops, different sequence)
+│   ├── amazon/          # Pre-computed historical Amazon driver routes (GPS reconstruction, one file per depot)
+│   └── solver/          # Pre-computed optimizer-generated routes (same stops, one file per depot)
 ├── data/
 │   └── massachusetts/   # Pre-processed OSRM map files (not in git, generated locally)
 ├── maps/                # Generated HTML maps (not in git)
