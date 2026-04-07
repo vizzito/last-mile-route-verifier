@@ -2,7 +2,7 @@
 
 An open-source tool for independently verifying and comparing last-mile delivery route distances using a **local OSRM instance** — no proprietary API keys or cloud services required.
 
-Built to reproduce and validate the results reported in:  
+Built to reproduce and validate the results reported in:
 **"Last-Mile Route Optimization at Million-Stop Scale"** — [Medium article](https://medium.com/@martinvizzolini/last-mile-route-optimization-at-1-million-stops-with-near-linear-scaling-e4d4b0118e80)
 
 ---
@@ -11,9 +11,25 @@ Built to reproduce and validate the results reported in:
 
 When an optimization solver claims to reduce total delivery distance by X%, how do you independently verify that claim?
 
-This tool answers that question. Given a JSON file of delivery routes encoded as direction URLs, it computes the **actual road distance** of every route by querying a local routing engine (OSRM). You can run it on two datasets covering the same stops — the **Amazon historical routes** and the **solver-generated routes** — and compare the total kilometers to verify the improvement.
+This tool answers that question. Given a JSON file of delivery routes encoded as Google Maps direction URLs, it computes the **actual road distance** of every route by querying a local routing engine (OSRM). You can run it on two datasets covering the same stops — the **Amazon historical routes** and the **solver-generated routes** — and compare the total kilometers to verify the improvement.
 
 No third-party APIs are involved. The only external data source is OpenStreetMap, downloaded once and processed locally.
+
+---
+
+## Screenshots
+
+### Interactive route map with summary panel
+
+Each verification run automatically generates an HTML map. The panel shows total routes, stops, km, and per-route averages. Each route has a distinct color.
+
+![Route map with summary panel](images/Screenshot%202026-04-07%20at%2000.24.02.png)
+
+### Stop sequence overlay (eye icon per route)
+
+Click the eye icon next to any route in the panel to overlay delivery sequence numbers directly on the map. The view auto-zooms to fit the selected route. Click again to hide.
+
+![Stop sequence numbers on map](images/Screenshot%202026-04-07%20at%2000.24.46.png)
 
 ---
 
@@ -21,8 +37,12 @@ No third-party APIs are involved. The only external data source is OpenStreetMap
 
 > Prerequisites: Docker installed, Python 3.8+ with `pip install -r requirements.txt`
 
+> **Important:** a running OSRM server is required before executing the verifier. Without it, distance queries cannot be made.
+
+> The sample datasets included (`DBO1`, `DBO2`, `DBO3`) cover the **Boston area**. Downloading the **Massachusetts** map is sufficient to run all included examples.
+
 ```bash
-# 1. Download and pre-process the map for your region (one-time)
+# 1. Download and pre-process the Massachusetts map (one-time setup)
 mkdir -p data/massachusetts
 wget https://download.geofabrik.de/north-america/us/massachusetts-latest.osm.pbf \
      -O data/massachusetts/massachusetts-latest.osm.pbf
@@ -30,31 +50,35 @@ wget https://download.geofabrik.de/north-america/us/massachusetts-latest.osm.pbf
 docker run --rm --platform linux/amd64 \
   -v "$(pwd)/data/massachusetts:/data" osrm/osrm-backend \
   osrm-extract -p /opt/car.lua /data/massachusetts-latest.osm.pbf
+
 docker run --rm --platform linux/amd64 \
   -v "$(pwd)/data/massachusetts:/data" osrm/osrm-backend \
   osrm-partition /data/massachusetts-latest.osrm
+
 docker run --rm --platform linux/amd64 \
   -v "$(pwd)/data/massachusetts:/data" osrm/osrm-backend \
   osrm-customize /data/massachusetts-latest.osrm
 
 # 2. Configure your environment
 cp .env.example .env
-# Edit OSRM_REGION=massachusetts (or your region)
+# Set OSRM_REGION=massachusetts in .env
 
-# 3. Start OSRM
+# 3. Start the OSRM server
 docker compose up osrm -d
 
-# 4. Verify Amazon historical routes
+# 4. Verify Amazon historical routes (map is generated automatically)
 python scripts/check_distance_osrm.py \
-  --input inputs/amazon/routes.json \
+  --input inputs/amazon/routes_result_DBO1_AMZ_60.json \
   --osrm  http://localhost:5002 \
   --workers 6
+# Saves map to maps/AMZ_DBO1.html
 
 # 5. Verify solver-generated routes
 python scripts/check_distance_osrm.py \
-  --input inputs/solver/routes.json \
+  --input inputs/solver/routes_result_DBO1_56.json \
   --osrm  http://localhost:5002 \
   --workers 6
+# Saves map to maps/SOLVER_DBO1.html
 
 # Compare the TOTAL DISTANCE values from steps 4 and 5
 ```
@@ -63,13 +87,13 @@ python scripts/check_distance_osrm.py \
 
 ## How the input data works
 
-### The JSON format
+### JSON format
 
 Each input file is a JSON array of routes. Each route is a list of URL segments, where each segment covers a sequence of up to 50 delivery stops:
 
 ```json
 {
-  "delivery_stop_count": 173738,
+  "delivery_stop_count": 8205,
   "routes": [
     [
       "https://www.google.com/maps/dir/?api=1&origin=42.3601,-71.0589&destination=42.3651,-71.0612&waypoints=42.3621,-71.0598|42.3635,-71.0605|...&travelmode=driving",
@@ -85,16 +109,16 @@ Each input file is a JSON array of routes. Each route is a list of URL segments,
 | Level | Represents |
 |---|---|
 | Outer array (`routes`) | One entry per route (one delivery driver's full day) |
-| Inner array | One URL per segment of that route (each URL covers ≤ 50 stops) |
-| URL `origin` / `destination` / `waypoints` | The ordered GPS coordinates of delivery stops |
+| Inner array | One URL per segment of that route (each URL covers up to 50 stops) |
+| URL `origin` / `destination` / `waypoints` | Ordered GPS coordinates of delivery stops |
 
-**Important:** this tool does **not** call Google Maps. The URL format is used as a portable, human-readable coordinate container. The tool reads only `origin`, `destination`, and `waypoints` from the query string — everything else is ignored.
+**Important:** this tool does **not** call Google Maps. The URL format is used only as a portable coordinate container. The tool reads `origin`, `destination`, and `waypoints` from the query string — nothing else.
 
-You can paste any URL into a browser to visually inspect the stops. That's its only role here.
+You can paste any URL into a browser to visually inspect the stops on a map.
 
 ### Why up to 50 stops per URL?
 
-Google Maps web supports 10 stops; the Google Directions API supports 25. These limits don't apply to OSRM — which can handle up to 50 in a single HTTP request. By packing 50 stops per URL, the tool minimizes the number of OSRM queries needed to compute a full route, which significantly speeds up processing.
+Google Maps web supports 10 stops; the Google Directions API supports 25. These limits do not apply to OSRM, which handles up to 50 in a single HTTP request. Packing 50 stops per URL minimizes the number of OSRM queries and significantly speeds up processing.
 
 ---
 
@@ -104,25 +128,25 @@ Both datasets cover the **exact same delivery stops**. The difference is in the 
 
 | Dataset | Description |
 |---|---|
-| `inputs/amazon/` | Historical routes actually driven by Amazon delivery drivers — a reconstruction from GPS tracking data |
-| `inputs/solver/` | Routes generated by the optimization algorithm — same stops, potentially re-sequenced and redistributed across vehicles to minimize total distance |
+| `inputs/amazon/` | Historical routes actually driven by Amazon delivery drivers, reconstructed from GPS tracking data |
+| `inputs/solver/` | Routes generated by the optimization algorithm — same stops, re-sequenced and redistributed across vehicles to minimize total distance |
 
-Both are processed identically by this tool. The only output that differs is the `TOTAL DISTANCE`. Comparing the two gives you an independent measurement of how much distance the solver saves.
+Both are processed identically. The only output that differs is `TOTAL DISTANCE`. Comparing the two gives an independent measurement of how much distance the solver saves.
 
-**Note on solver constraints:** the solver-generated routes were built under real operational constraints — maximum stops per route, vehicle weight capacity, cargo volume capacity, and delivery time windows. These constraints are encoded in the solver input, not in the GPS coordinates. As a result, **delivery volumes and weights are not visualized in the maps** — the coordinate files contain only location data. What you see on the map is the physical footprint of the routes, not their payload.
+**Note on solver constraints:** the solver routes were built under real operational constraints — maximum stops per route, vehicle weight, cargo volume, and delivery time windows. These constraints are encoded in the solver input, not in the GPS coordinates. Delivery volumes and weights are not visualized in the maps.
 
 ---
 
 ## What is OSRM?
 
-**OSRM (Open Source Routing Machine)** is a high-performance routing engine built on **OpenStreetMap (OSM)** road data. It computes shortest-path driving distances using the **Multi-Level Dijkstra (MLD)** algorithm on pre-processed road graphs.
+**OSRM (Open Source Routing Machine)** is a high-performance routing engine built on **OpenStreetMap (OSM)** road data. It computes shortest-path driving distances using the Multi-Level Dijkstra (MLD) algorithm on pre-processed road graphs.
 
 Key properties:
 
-- **Offline and free**: runs entirely on your machine using OSM data from [Geofabrik](https://download.geofabrik.de/)
-- **Deterministic**: same map + same coordinates → same distance, every time
-- **Road-aware**: accounts for drivable roads, turn restrictions, and one-way streets
-- **Fast**: graph pre-processing enables sub-millisecond query times at runtime
+- **Offline and free:** runs entirely on your machine using OSM data from [Geofabrik](https://download.geofabrik.de/)
+- **Deterministic:** same map and same coordinates always return the same distance
+- **Road-aware:** accounts for drivable roads, turn restrictions, and one-way streets
+- **Fast:** graph pre-processing enables sub-millisecond query times
 
 OSRM is queried via its HTTP API:
 
@@ -140,39 +164,40 @@ The response includes a `distance` field in meters, which this tool converts to 
 ================================================================
   LAST-MILE ROUTE DISTANCE VERIFIER
 ================================================================
-  Input    : inputs/amazon/routes.json
+  Input    : inputs/amazon/routes_result_DBO1_AMZ_60.json
   OSRM     : http://localhost:5002
-  Routes   : 3   |   Segments: 5   |   Workers: 6
-  Stop mode: chain  (waypoints-only 175 | chain-merged 173 delivery coords)
+  Routes   : 60   |   Segments: 200   |   Workers: 6
+  Stop mode: chain  (waypoints-only 8069 | chain-merged 8205 delivery coords)
 ================================================================
 
-Processing 5 segment(s) using 6 parallel worker(s)...
+Processing 200 segment(s) using 6 parallel worker(s)...
 
-  [  OK]    1/5  Route  1  Seg 1     2.341 km  (6 stops)
-  [  OK]    2/5  Route  1  Seg 2     3.812 km  (6 stops)
-  [  OK]    3/5  Route  2  Seg 1     1.924 km  (6 stops)
-  [  OK]    4/5  Route  3  Seg 1     1.203 km  (4 stops)
-  [  OK]    5/5  Route  3  Seg 2     2.100 km  (4 stops)
+  [  OK]    1/200  Route   1  Seg 1     2.341 km  (50 stops)
+  [  OK]    2/200  Route   1  Seg 2     3.812 km  (50 stops)
+  ...
 
 ================================================================
   ROUTE SUMMARY
 ----------------------------------------------------------------
-  Route   1  |  2 segments   |     6.153 km
-  Route   2  |  1 segment    |     1.924 km
-  Route   3  |  2 segments   |     3.303 km
+  Route   1  |  4 segments   |    31.204 km
+  Route   2  |  3 segments   |    18.917 km
+  ...
 ----------------------------------------------------------------
-  Total routes    : 3
-  Total segments  : 5
-  Total points    : 173,738
+  Total routes    : 60
+  Total segments  : 200
+  Total points    : 8,205
 
-  TOTAL DISTANCE  :      11.380 km
+  TOTAL DISTANCE  :   1,234.560 km
 ================================================================
+
+Generating map → maps/AMZ_DBO1.html ...
+Map saved      → maps/AMZ_DBO1.html
 ```
 
 | Field | Description |
 |---|---|
-| `stops` | Coordinate points in that segment (origin + waypoints + destination) |
-| `km` per segment | Road distance as returned by OSRM |
+| `stops` | Coordinate count in that segment |
+| `km` per segment | Road distance returned by OSRM |
 | `km` per route | Sum of all segment distances for that route |
 | `Total points` | Canonical stop count from the JSON metadata |
 | `TOTAL DISTANCE` | Sum across all routes — the number to compare between datasets |
@@ -181,51 +206,40 @@ Processing 5 segment(s) using 6 parallel worker(s)...
 
 ## Requirements
 
-- **Docker** (for OSRM and optionally the verifier container)
-- **Python 3.8+** with `pip install -r requirements.txt` (for native runs)
+- **Docker** (for OSRM)
+- **Python 3.8+** with `pip install -r requirements.txt`
 - OSM map data for your region (downloaded once, stored in `data/`)
+
+> **Important:** the OSRM server must be running before executing any verification. Start it with `docker compose up osrm -d` and wait a few seconds for the road graph to load.
 
 ---
 
-## Setup — download and pre-process map data
+## Setup — map data pre-processing
 
 This step is required once per region. The output files are stored in `data/<region>/` and reused on every subsequent run.
 
-### 1. Download OpenStreetMap data
-
-Go to [Geofabrik](https://download.geofabrik.de/) and download the `.osm.pbf` file for your region. For example, for Massachusetts:
+Download the `.osm.pbf` file for your region from [Geofabrik](https://download.geofabrik.de/), then run the three pre-processing steps:
 
 ```bash
+# Example for Massachusetts (covers DBO1, DBO2, DBO3 sample datasets)
 mkdir -p data/massachusetts
 wget https://download.geofabrik.de/north-america/us/massachusetts-latest.osm.pbf \
      -O data/massachusetts/massachusetts-latest.osm.pbf
-```
 
-### 2. Pre-process the map with OSRM
-
-Run these three commands in order. This is a one-time operation — the resulting files are reused every time OSRM starts.
-
-```bash
-# Step 1 — Extract: parse OSM data and build the routing graph
 docker run --rm --platform linux/amd64 \
-  -v "$(pwd)/data/massachusetts:/data" \
-  osrm/osrm-backend \
+  -v "$(pwd)/data/massachusetts:/data" osrm/osrm-backend \
   osrm-extract -p /opt/car.lua /data/massachusetts-latest.osm.pbf
 
-# Step 2 — Partition: split the graph into cells for MLD routing
 docker run --rm --platform linux/amd64 \
-  -v "$(pwd)/data/massachusetts:/data" \
-  osrm/osrm-backend \
+  -v "$(pwd)/data/massachusetts:/data" osrm/osrm-backend \
   osrm-partition /data/massachusetts-latest.osrm
 
-# Step 3 — Customize: compute routing weights per cell
 docker run --rm --platform linux/amd64 \
-  -v "$(pwd)/data/massachusetts:/data" \
-  osrm/osrm-backend \
+  -v "$(pwd)/data/massachusetts:/data" osrm/osrm-backend \
   osrm-customize /data/massachusetts-latest.osrm
 ```
 
-> Pre-processing a US state takes a few minutes and ~1.5 GB of disk space.
+> Pre-processing a US state takes a few minutes and requires approximately 1.5 GB of disk space.
 
 ---
 
@@ -233,126 +247,69 @@ docker run --rm --platform linux/amd64 \
 
 Before processing any routes, the verifier automatically checks that the OSRM server covers the same geographic area as your input data.
 
-**How it works:** a few coordinates from your input are sent to OSRM's `/nearest` endpoint. OSRM always responds, but if the map is wrong it snaps to a road thousands of kilometers away. If the correct map is loaded, snap distances are typically under 200 meters.
+A few coordinates from your input are sent to OSRM's `/nearest` endpoint. If the correct map is loaded, snap distances are typically under 200 meters. If the map is wrong, snapping lands thousands of kilometers away.
 
 **When the map matches:**
 ```
-================================================================
-  REGION VALIDATION
-----------------------------------------------------------------
-  OSRM server      : http://localhost:5002
-  Input bbox       : lat [33.7, 34.1]  lon [-118.5, -117.9]
-  Sampling         : 5 coordinate(s)
-----------------------------------------------------------------
-  [  OK]  (33.91234, -118.23451)  →  nearest road:       38.2 m
-  [  OK]  (34.01892, -118.05123)  →  nearest road:       12.7 m
-  ...
-  Detected region  : California
+  [  OK]  (42.36123, -71.05891)  →  nearest road:       38.2 m
+  Detected region  : Massachusetts / New England
   Map region matches input data. Proceeding.
-================================================================
 ```
 
-**When the map is wrong (e.g. Massachusetts loaded but input is Texas):**
+**When the map is wrong:**
 ```
-  [FAIL]  (30.44524, -97.70942)  →  nearest road: 1,066,094.8 m ← too far
-  ...
+  [FAIL]  (30.44524, -97.70942)  →  nearest road: 1,066,094.8 m
   ERROR: The loaded OSRM map does not cover this dataset's region.
 
-  ── Suggested fix ──────────────────────────────────────────
   Detected region  : Texas
   Geofabrik slug   : north-america/us/texas
-
-  1. Download the correct map (one-time):
-       mkdir -p data/texas
-       wget https://download.geofabrik.de/north-america/us/texas-latest.osm.pbf \
-            -O data/texas/texas-latest.osm.pbf
-
-  2. Pre-process (one-time per map file):
-       docker run --rm --platform linux/amd64 \
-         -v "$(pwd)/data/texas:/data" osrm/osrm-backend \
-         osrm-extract -p /opt/car.lua /data/texas-latest.osm.pbf
-       ...
-
-  3a. Start OSRM (native):
-       ./run_osrm.sh texas 5002
-
-  3b. Start OSRM (docker compose) — set in .env:
-       OSRM_REGION=texas
-       OSRM_PORT=5002
-       docker compose up osrm -d
-  ────────────────────────────────────────────────────────────
+  Download and pre-process the Texas map, then restart OSRM with OSRM_REGION=texas.
 ```
 
-The script exits immediately — no OSRM queries are wasted on the wrong map, and the suggested commands are ready to copy-paste.
+The script exits immediately — no queries are wasted, and the fix is shown inline.
 
 ---
 
-## Running with Docker (recommended)
-
-### Configure environment
+## Running with Docker
 
 ```bash
+# Configure environment
 cp .env.example .env
-# Edit OSRM_REGION to match your input data's region (e.g., texas, california)
-# Edit OSRM_PORT if 5002 is already in use
-```
+# Set OSRM_REGION=massachusetts (or your region) in .env
 
-### Step 1 — Start the OSRM server
-
-```bash
+# Start OSRM
 docker compose up osrm -d
-```
 
-Wait a few seconds for OSRM to load the road graph. The healthcheck in `docker-compose.yml` ensures it's ready before the verifier starts.
-
-### Step 2 — Run the verifier
-
-Verify Amazon historical routes:
-
-```bash
+# Run the verifier (map is saved automatically based on the input filename)
 docker compose run --rm verifier \
-  --input inputs/amazon/routes.json \
+  --input inputs/amazon/routes_result_DBO1_AMZ_60.json \
   --osrm  http://osrm:5000
-```
 
-Verify solver-generated routes:
-
-```bash
-docker compose run --rm verifier \
-  --input inputs/solver/routes.json \
-  --osrm  http://osrm:5000
-```
-
-> Inside docker compose, use `http://osrm:5000` (the internal service name). When running natively, use `http://localhost:5002`.
-
-Compare the `TOTAL DISTANCE` from both runs to quantify the solver's improvement.
-
-### Step 3 — Stop OSRM
-
-```bash
+# Stop OSRM when done
 docker compose down
 ```
 
+> Inside Docker Compose, use `http://osrm:5000` as the OSRM URL. When running natively, use `http://localhost:5002`.
+
 ---
 
-## Running natively (no Docker for the verifier)
+## Running natively
 
 ```bash
-# Install Python dependencies
 pip install -r requirements.txt
 
 # Start OSRM
 ./run_osrm.sh massachusetts 5002
 
-# Verify Amazon routes
+# Verify Amazon routes (map auto-saved to maps/AMZ_DBO1.html)
 python scripts/check_distance_osrm.py \
-  --input   inputs/amazon/routes.json \
+  --input   inputs/amazon/routes_result_DBO1_AMZ_60.json \
   --osrm    http://localhost:5002 \
   --workers 6
 
-# Verify solver routes
+# Verify solver routes (map auto-saved to maps/SOLVER_DBO1.html)
 python scripts/check_distance_osrm.py \
-  --input   inputs/solver/routes.json \
+  --input   inputs/solver/routes_result_DBO1_56.json \
   --osrm    http://localhost:5002 \
   --workers 6
 ```
@@ -361,157 +318,91 @@ python scripts/check_distance_osrm.py \
 
 | Option | Default | Description |
 |---|---|---|
-| `--input` | *(required)* | Path to the JSON input file |
-| `--osrm` | `http://localhost:5002` | Base URL of the OSRM HTTP server |
+| `--input` | required | Path to the JSON input file |
+| `--osrm` | `http://localhost:5002` | Base URL of the OSRM server |
 | `--workers` | `6` | Parallel threads for OSRM queries |
-| `--map` | — | Path to save the HTML map (e.g. `maps/amazon.html`) |
-| `--label` | filename-derived | Label shown on the map title |
-| `--no-map` | — | Skip HTML map generation entirely |
+| `--map` | auto from filename | Output path for the HTML map (e.g. `maps/amazon.html`) |
+| `--no-map` | off | Skip HTML map generation |
+| `--label` | auto from filename | Title shown on the map panel |
+
+The map output path and label are automatically inferred from the input filename when they follow the `routes_result_<CODE>_AMZ_<n>.json` or `routes_result_<CODE>_<n>.json` pattern. Pass `--map` and `--label` explicitly for files with generic names.
 
 ---
 
 ## HTML maps (visualizing routes)
 
-`generate_map.py` produces an interactive HTML map from any route JSON file — **no OSRM or Docker needed**. Coordinates are read directly from the URLs; no external API is called.
+`generate_map.py` produces an interactive HTML map from any route JSON file — no OSRM required. Coordinates are read directly from the URLs; no external API is called.
 
 Each map includes:
+
 - Colored circle markers for every delivery stop (one color per route)
-- Square depot markers at each route's starting warehouse
-- A collapsible route summary panel (top-right): per-route stop count, km if available
-- A context banner (top-center) explaining what the map shows
-
-### Option A — standalone map (no OSRM, fastest)
+- Square depot markers (black outline, light gray fill) at each route's starting warehouse
+- Collapsible route summary panel (top-right): total routes, stops, km, averages, and per-route breakdown
+- Optional top-center banner with a description of the dataset
 
 ```bash
-# Single dataset
+# Single dataset map (no OSRM needed)
 python scripts/generate_map.py \
-  --input       inputs/amazon/routes.json \
-  --output      maps/amazon.html \
-  --label-a     "Amazon routes" \
-  --description "Reconstruction of historical Amazon driver routes. Stop sequences extracted from GPS data."
+  --input   inputs/amazon/routes_result_DBO1_AMZ_60.json \
+  --output  maps/DBO1_amazon.html \
+  --label-a "DBO1 Amazon"
 
-# Side-by-side comparison (layer toggle in browser)
+# Side-by-side comparison with layer toggle
 python scripts/generate_map.py \
-  --input   inputs/amazon/routes.json \
-  --compare inputs/solver/routes.json \
-  --output  maps/comparison.html \
+  --input   inputs/amazon/routes_result_DBO1_AMZ_60.json \
+  --compare inputs/solver/routes_result_DBO1_56.json \
+  --output  maps/DBO1_comparison.html \
   --label-a "Amazon" \
-  --label-b "Solver" \
-  --description "Same delivery stops, two different route plans. Toggle layers to compare coverage."
+  --label-b "Solver"
 ```
 
-### Option B — map during distance verification (includes km per route)
+**Map interactive features:**
 
-Add `--map` to any `check_distance_osrm.py` run. The map is saved after all distances are computed and includes OSRM-verified km per route in each popup:
-
-```bash
-# Native
-python scripts/check_distance_osrm.py \
-  --input   inputs/amazon/routes.json \
-  --osrm    http://localhost:5002 \
-  --workers 6 \
-  --map     maps/amazon.html \
-  --label   "Amazon"
-
-# Docker
-docker compose run --rm verifier \
-  --input inputs/solver/routes.json \
-  --osrm  http://osrm:5000 \
-  --map   inputs/solver/map.html \
-  --label "Solver"
-```
-
-The map header auto-generates a contextual description based on the label:
-- Labels containing `amazon` or `amz` → explains the reconstruction and URL encoding
-- Labels containing `solver` or `opt` → explains re-sequencing, solver constraints, and the volume note
+- **Route summary panel** — collapsible; shows total stops, total km, stops/route, km/route, and per-route detail
+- **Eye icon per route** — click to overlay delivery sequence numbers (1, 2, 3…) on the map for that route; the view auto-zooms to fit it. Click again to hide
+- **Top-center banner** — dataset title with an optional description. Click the × to dismiss it
 
 ### `generate_map.py` options
 
 | Option | Default | Description |
 |---|---|---|
-| `--input` | *(required)* | Route JSON file |
+| `--input` | required | Route JSON file |
 | `--output` | `map.html` | Output HTML file path |
-| `--compare` | — | Second JSON file to overlay with layer toggle |
-| `--label-a` / `--label-b` | `Amazon` / `Solver` | Dataset labels in title and layer control |
-| `--description` | — | Subtitle shown in the top-center map banner (with × to close) |
-| `--delivery-stops` | — | Override displayed stop count |
-
-**Map interactive features:**
-- **Top-center banner** — shows dataset title and description. Click **×** to dismiss it.
-- **Route summary panel** (top-right) — collapsible; shows stop count and km per route (km only in OSRM mode). Applies to both Amazon and Solver maps.
-- **👁 Eye toggle** — click the eye icon (👁) next to any route in the summary panel to:
-  - Overlay stop sequence numbers (1, 2, 3…) directly on the map for that route
-  - **Auto-zoom to fit the full route** in the viewport
-  - Click again to hide the labels and return to the previous view
-  - Multiple routes can have their sequence visible simultaneously
-  - Labels are rendered on demand — no performance impact until activated
-
-**Via Docker** (no local Python needed):
-
-```bash
-docker compose run --rm --entrypoint "" verifier \
-  python scripts/generate_map.py \
-    --input       inputs/solver/routes.json \
-    --output      inputs/solver/map.html \
-    --label-a     "Solver" \
-    --description "Optimizer-generated routes constrained by stops, weight, volume, and time windows."
-```
-
-> Inside Docker only `./inputs` is mounted, so use a path under `inputs/` for `--output`.
+| `--compare` | none | Second JSON file to overlay with a layer toggle |
+| `--label-a` / `--label-b` | `Amazon` / `Solver` | Dataset labels in the panel and layer control |
+| `--description` | none | Subtitle shown in the top-center banner |
+| `--delivery-stops` | none | Override the displayed stop count |
 
 ---
 
 ## Alternative: OpenRouteService (online, no Docker required)
 
-[OpenRouteService (ORS)](https://openrouteservice.org/) is a free online routing API powered by OpenStreetMap. It accepts the same input format and requires no local infrastructure — just an API key.
+[OpenRouteService (ORS)](https://openrouteservice.org/) is a free online routing API powered by OpenStreetMap. It accepts the same input format and requires no local infrastructure — just a free API key.
 
 **When to use ORS instead of OSRM:**
-- You don't want to download and pre-process regional map files
-- You want a quick cross-check against a different routing engine
-- You're running on a machine without Docker
 
-**Limitation:** ORS is rate-limited. The free tier allows **2,000 requests/day** and **40 requests/minute**. For large datasets (hundreds of routes), OSRM is significantly faster.
+- No Docker or local map downloads desired
+- Quick cross-check against a different routing engine
+- Running on a machine without Docker
 
----
+**Limitation:** ORS is rate-limited. The free tier allows 2,000 requests/day and 40 requests/minute. For large datasets, OSRM is significantly faster.
 
 ### Setup
 
-**Step 1 — Create a free account**
-
-Go to [openrouteservice.org/dev/#/signup](https://openrouteservice.org/dev/#/signup) and register. After verifying your email, you can generate an API key from the dashboard under **Tokens**. The key looks like:
-
-```
-5b3ce3597851110001cf6248xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
-
-**Step 2 — Set the environment variable**
-
-Option A — export once in your shell session:
+Create a free account at [openrouteservice.org/dev/#/signup](https://openrouteservice.org/dev/#/signup) and generate an API key from the dashboard under **Tokens**.
 
 ```bash
 export ORS_API_KEY=your_key_here
-python scripts/check_distance_ors.py --input inputs/amazon/routes.json
+python scripts/check_distance_ors.py --input inputs/amazon/routes_result_DBO1_AMZ_60.json
 ```
 
-Option B — inline for a single command (nothing exported to shell):
+### ORS CLI options
 
-```bash
-ORS_API_KEY=your_key_here python scripts/check_distance_ors.py \
-  --input inputs/amazon/routes.json
-```
-
-Option C — load from your `.env` file:
-
-```bash
-# Add to .env:  ORS_API_KEY=your_key_here
-
-export $(grep ORS_API_KEY .env | xargs)
-python scripts/check_distance_ors.py --input inputs/amazon/routes.json
-```
-
-> **Note:** `.env` is not loaded automatically. You must export the variable into your shell before running.
-
----
+| Option | Default | Description |
+|---|---|---|
+| `--input` | required | Path to the JSON input file |
+| `--wait` | `1.6` | Seconds between requests. Keep at 1.5 or above on the free tier |
+| `--retries` | `3` | Max retry attempts per segment on rate limit or failure |
 
 ### Free tier limits
 
@@ -520,120 +411,10 @@ python scripts/check_distance_ors.py --input inputs/amazon/routes.json
 | Requests per day | 2,000 |
 | Requests per minute | 40 |
 | Max stops per request | 50 |
-| Daily reset | 24h rolling window |
 
-The script uses **1.6 seconds between requests** by default (~37 req/min), staying safely under the 40/min limit. HTTP 429 (rate limit) triggers automatic exponential backoff and retry. HTTP 403 means you've hit the daily limit.
+The script uses 1.6 seconds between requests by default (~37 req/min). HTTP 429 triggers automatic exponential backoff and retry.
 
----
-
-### Running the ORS verifier
-
-```bash
-# Amazon historical routes
-ORS_API_KEY=your_key_here python scripts/check_distance_ors.py \
-  --input inputs/amazon/routes.json
-
-# Solver routes
-ORS_API_KEY=your_key_here python scripts/check_distance_ors.py \
-  --input inputs/solver/routes.json
-
-# Paid tier — lower wait for higher throughput
-ORS_API_KEY=your_key_here python scripts/check_distance_ors.py \
-  --input inputs/solver/routes.json \
-  --wait 0.5
-```
-
-**Example — running a real dataset (154 routes):**
-
-```bash
-ORS_API_KEY=your_key_here python scripts/check_distance_ors.py \
-  --input inputs/amazon/routes_result_DCH2_AMZ_154.json
-```
-
-**Expected output:**
-
-```
-================================================================
-  LAST-MILE ROUTE DISTANCE VERIFIER  [OpenRouteService]
-================================================================
-  Input    : inputs/amazon/routes_result_DCH2_AMZ_154.json
-  ORS API  : https://api.openrouteservice.org/v2/directions/driving-car
-  Routes   : 154   |   Segments: 566   |   Wait: 1.6s/req
-================================================================
-
-Processing 566 segment(s) sequentially (~1.6s between requests)...
-
-  [  OK]     1/566  Route    1  Seg 1    17.696 km  (49 stops)
-  [  OK]     2/566  Route    1  Seg 2     9.759 km  (49 stops)
-  [  OK]     3/566  Route    1  Seg 3     9.047 km  (49 stops)
-  [  OK]     4/566  Route    1  Seg 4    12.395 km  (14 stops)
-  [  OK]     5/566  Route    2  Seg 1    12.819 km  (49 stops)
-  ...
-  [  OK]   566/566  Route  154  Seg 4     8.103 km  (12 stops)
-
-================================================================
-  ROUTE SUMMARY
-----------------------------------------------------------------
-  Route    1  |  4 segments   |    48.897 km
-  Route    2  |  4 segments   |    41.552 km
-  ...
-  Route  154  |  4 segments   |    35.710 km
-----------------------------------------------------------------
-  Total routes    : 154
-  Total segments  : 566
-
-  TOTAL DISTANCE  :   5,832.471 km
-================================================================
-```
-
-**What to look for:**
-
-- `[  OK]` — segment processed successfully
-- `[SKIP]` — URL couldn't be parsed or had fewer than 2 unique coordinates; contributes 0 km
-- `[WAIT]` — ORS returned HTTP 429; the script backed off and will retry automatically
-- **TOTAL DISTANCE** — the value to compare against the OSRM verifier
-
-Differences of **1–3% between ORS and OSRM** are normal (different routing engines, different map data versions). Larger differences indicate a data or configuration problem.
-
-> **Estimated runtime:** 566 segments × 1.6s ≈ **~15 minutes**. Use `--wait 0.5` on paid tiers to reduce to ~5 minutes.
-
----
-
-### ORS CLI options
-
-| Option | Default | Description |
-|---|---|---|
-| `--input` | *(required)* | Path to the JSON input file (same format as OSRM verifier) |
-| `--wait` | `1.6` | Seconds between requests. Keep ≥ 1.5 on free tier |
-| `--retries` | `3` | Max retry attempts per segment on failure or rate limit |
-
----
-
-### Comparing ORS vs OSRM
-
-```bash
-# OSRM (local, fast, parallel)
-python scripts/check_distance_osrm.py \
-  --input inputs/amazon/routes.json \
-  --no-map
-
-# ORS (online, sequential, rate-limited)
-ORS_API_KEY=your_key_here python scripts/check_distance_ors.py \
-  --input inputs/amazon/routes.json
-```
-
-Both tools report similar totals. A 1–3% difference is expected and acceptable. If the difference is larger, verify that the OSRM map region matches the input dataset.
-
----
-
-## Reproducing paper results
-
-To reproduce the distances reported in the Medium article using the Amazon Last Mile Routing Research Challenge dataset:
-
-1. Download the dataset from [AWS Open Data](https://registry.opendata.aws/amazon-last-mile-routing-research/)
-2. Extract historical route sequences and convert them to the JSON URL format (origin, destination, waypoints per segment)
-3. Download and pre-process OSM data for the corresponding US state
-4. Run both `inputs/amazon/` and `inputs/solver/` through this tool and compare totals
+> Differences of 1–3% between ORS and OSRM results are normal (different routing engines, different map data versions).
 
 ---
 
@@ -642,23 +423,23 @@ To reproduce the distances reported in the Medium article using the Amazon Last 
 ```
 last-mile-route-verifier/
 ├── inputs/
-│   ├── amazon/          # Historical Amazon driver routes (reconstruction from GPS)
-│   │   └── routes.json
+│   ├── amazon/          # Historical Amazon driver routes (GPS reconstruction)
 │   └── solver/          # Optimizer-generated routes (same stops, different sequence)
-│       └── routes.json
 ├── data/
 │   └── massachusetts/   # Pre-processed OSRM map files (not in git, generated locally)
 ├── maps/                # Generated HTML maps (not in git)
+├── images/              # Screenshots used in this README
 ├── scripts/
 │   ├── check_distance_osrm.py  # Main verifier (local OSRM, parallel)
 │   ├── check_distance_ors.py   # Alternative verifier (ORS online API, sequential)
-│   ├── count_json_coords.py    # Count URL coordinate tokens including duplicates
-│   └── generate_map.py         # Interactive HTML map from route JSON (no OSRM needed)
-├── Dockerfile                  # Verifier container image
-├── docker-compose.yml          # Orchestrates OSRM + verifier
-├── run_osrm.sh                 # Convenience script to start OSRM natively
-├── requirements.txt            # Python dependencies
-└── .env.example                # Environment variable template
+│   ├── count_json_coords.py    # Count URL coordinate tokens
+│   ├── generate_map.py         # Interactive HTML map from route JSON
+│   └── validate_route_delivery_count.py  # Validate stop counts vs metadata
+├── Dockerfile
+├── docker-compose.yml
+├── run_osrm.sh
+├── requirements.txt
+└── .env.example
 ```
 
 ---

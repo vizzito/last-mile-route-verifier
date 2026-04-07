@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ':*)",
+      "WebFetch(domain:openrouteservice.org)",
+      "WebFetch(domain:account.heigit.org)",
+      "WebSearch",
+      "WebFetch(domain:ask.openrouteservice.org)",
+      "Bash(git -C /Users/martinvizzolini/workspace/last-mile-route-verifier ls-files --others --ignored --exclude-standard)",
+      "Bash(git -C /Users/martinvizzolini/workspace/last-mile-route-verifier status --short)",
+      "Bash(git -C /Users/martinvizzolini/workspace/last-mile-route-verifier ls-files)",
+      "Bash(python3 -c \"import scripts.generate_map; print\\('OK'\\)\")"
+    ]
+  }
+}
