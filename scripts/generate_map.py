@@ -809,85 +809,6 @@ def build_single_map(
     return fmap, marker_total
 
 
-def build_comparison_map(
-    urls_a: List[List[str]],
-    urls_b: List[List[str]],
-    label_a: str = "Dataset A",
-    label_b: str = "Dataset B",
-    description: str = "",
-    *,
-    coord_mode_a: CoordMode = "waypoints",
-    coord_mode_b: CoordMode = "waypoints",
-) -> Any:
-    """Builds a side-by-side comparison map with layer toggle."""
-    fl = _require_folium()
-    all_coords: List[Tuple[float, float]] = []
-    for route_urls in urls_a:
-        all_coords.extend(route_to_coords(route_urls, mode=coord_mode_a))
-    for route_urls in urls_b:
-        all_coords.extend(route_to_coords(route_urls, mode=coord_mode_b))
-    for nested in (urls_a, urls_b):
-        for _, c in depot_entries_from_nested(nested):
-            all_coords.append(c)
-
-    if not all_coords:
-        raise ValueError("No valid coordinates found in inputs.")
-
-    center = centroid(all_coords)
-    fmap = fl.Map(location=center, zoom_start=13, tiles="CartoDB positron")
-
-    def total_stops(nested: List[List[str]], mode: CoordMode) -> int:
-        return sum(len(route_to_coords(r, mode=mode)) for r in nested)
-
-    # Top-center title + description banner (with X to close)
-    desc_line = (
-        f'<div style="font-size:11px;color:#555;margin-top:4px;max-width:600px">{description}</div>'
-        if description else ""
-    )
-    title_html = f"""
-    <div id="map-banner" style="position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:9999">
-        <div style="position:relative;background:white;padding:8px 36px 8px 20px;border-radius:6px;
-                    border:1px solid #ccc;font-family:sans-serif;
-                    box-shadow:2px 2px 6px rgba(0,0,0,.2);text-align:center">
-            <div style="font-size:14px;font-weight:bold">Comparison: {label_a} vs {label_b}</div>
-            {desc_line}
-            <span onclick="document.getElementById('map-banner').style.display='none'"
-                  style="position:absolute;top:4px;right:10px;cursor:pointer;font-size:18px;
-                         color:#bbb;line-height:1" title="Close">&#215;</span>
-        </div>
-    </div>
-    """
-    fmap.get_root().html.add_child(fl.Element(title_html))
-
-    group_a = fl.FeatureGroup(
-        name=f"{label_a} ({len(urls_a)} routes, {total_stops(urls_a, coord_mode_a)} stops)",
-        show=True,
-    )
-    group_b = fl.FeatureGroup(
-        name=f"{label_b} ({len(urls_b)} routes, {total_stops(urls_b, coord_mode_b)} stops)",
-        show=True,
-    )
-
-    add_routes_to_map(
-        group_a, urls_a, label_prefix=f"[{label_a}] ", coord_mode=coord_mode_a
-    )
-    add_depot_markers_to_map(
-        group_a, depot_entries_from_nested(urls_a), label_prefix=f"[{label_a}] "
-    )
-    add_routes_to_map(
-        group_b, urls_b, label_prefix=f"[{label_b}] ", coord_mode=coord_mode_b
-    )
-    add_depot_markers_to_map(
-        group_b, depot_entries_from_nested(urls_b), label_prefix=f"[{label_b}] "
-    )
-
-    group_a.add_to(fmap)
-    group_b.add_to(fmap)
-    fl.LayerControl(collapsed=False).add_to(fmap)
-
-    return fmap
-
-
 # ---------------------------------------------------------------------------
 # Map from pre-computed OSRM results (called by check_distance_osrm.py)
 # ---------------------------------------------------------------------------
@@ -1152,8 +1073,7 @@ if __name__ == "__main__":
     parser.add_argument("--input", required=True, help="Primary JSON file (list of route URL lists)")
     parser.add_argument("--compare", help="Optional second JSON file to overlay as a comparison layer")
     parser.add_argument("--output", default="map.html", help="Output HTML file path (default: map.html)")
-    parser.add_argument("--label-a", default="Amazon", help="Label for --input dataset (default: Amazon)")
-    parser.add_argument("--label-b", default="Solver", help="Label for --compare dataset (default: Solver)")
+    parser.add_argument("--label-a", default="Amazon", help="Label for the dataset (default: Amazon)")
     parser.add_argument("--description", default="", help="Optional subtitle shown in the map header banner")
     parser.add_argument(
         "--delivery-stops",
@@ -1179,68 +1099,28 @@ if __name__ == "__main__":
     n_tokens = count_encoded_coordinate_tokens(urls_a)
     print(f"JSON coordinate tokens (incl. duplicates): {n_tokens:,}")
 
-    urls_b = None
-    file_stop_count_b: Optional[int] = None
-    if args.compare:
-        with open(args.compare) as f:
-            urls_b, file_stop_count_b, doc_mode_b = load_routes_json_payload(json.load(f))
-        n_tokens_b = count_encoded_coordinate_tokens(urls_b)
-        print(f"JSON coordinate tokens [compare, incl. duplicates]: {n_tokens_b:,}")
-
     display_n = args.delivery_stops if args.delivery_stops is not None else file_stop_count
-    canonical_resolve = (
-        args.delivery_stops if args.delivery_stops is not None else file_stop_count
-    )
     mode_a = resolve_delivery_coord_mode(
         urls_a,
-        canonical=canonical_resolve,
+        canonical=display_n,
         force=args.coord_mode,  # type: ignore[arg-type]
         doc_coord_mode=doc_mode_a,
     )
     print(
-        f"Coord mode [{args.label_a}]: {mode_a} "
+        f"Coord mode: {mode_a} "
         f"(waypoints {delivery_coord_totals(urls_a)[0]:,} | chain {delivery_coord_totals(urls_a)[1]:,})"
     )
 
-    if args.compare:
-        assert urls_b is not None
-        mode_b = resolve_delivery_coord_mode(
-            urls_b,
-            canonical=file_stop_count_b,
-            force=args.coord_mode,  # type: ignore[arg-type]
-            doc_coord_mode=doc_mode_b,
-        )
-        print(
-            f"Coord mode [{args.label_b}]: {mode_b} "
-            f"(waypoints {delivery_coord_totals(urls_b)[0]:,} | chain {delivery_coord_totals(urls_b)[1]:,})"
-        )
-        fmap = build_comparison_map(
-            urls_a,
-            urls_b,
-            label_a=args.label_a,
-            label_b=args.label_b,
-            description=args.description,
-            coord_mode_a=mode_a,
-            coord_mode_b=mode_b,
-        )
-        pa = count_parsed_delivery_stops_from_nested(urls_a, mode=mode_a)
-        pb = count_parsed_delivery_stops_from_nested(urls_b, mode=mode_b)
-        print(f"Comparison map: {len(urls_a)} routes ({pa} pts) vs {len(urls_b)} routes ({pb} pts)")
-    else:
-        panel_total = (
-            args.delivery_stops
-            if args.delivery_stops is not None
-            else file_stop_count
-        )
-        fmap, n_markers = build_single_map(
-            urls_a,
-            title=args.label_a,
-            description=args.description,
-            display_stop_count=display_n,
-            coord_mode=mode_a,
-            panel_report_total_stops=panel_total,
-        )
-        print(f"Map: {len(urls_a)} routes, {n_markers} markers")
+    panel_total = args.delivery_stops if args.delivery_stops is not None else file_stop_count
+    fmap, n_markers = build_single_map(
+        urls_a,
+        title=args.label_a,
+        description=args.description,
+        display_stop_count=display_n,
+        coord_mode=mode_a,
+        panel_report_total_stops=panel_total,
+    )
+    print(f"Map: {len(urls_a)} routes, {n_markers} markers")
 
     fmap.save(args.output)
     print(f"Saved → {args.output}")
