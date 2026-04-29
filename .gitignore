@@ -20,3 +20,4 @@ maps/*.png
 # System
 .DS_Store
 *.log
+.claude/
